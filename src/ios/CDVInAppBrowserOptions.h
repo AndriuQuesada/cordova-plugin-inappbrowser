@@ -45,6 +45,8 @@
 @property (nonatomic, assign) BOOL disallowoverscroll;
 @property (nonatomic, copy) NSString* beforeload;
 
+@property (nonatomic, strong) NSArray* linkedDocuments;
+
 + (CDVInAppBrowserOptions*)parseOptions:(NSString*)options;
 
 @end

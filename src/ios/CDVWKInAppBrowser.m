@@ -94,6 +94,7 @@ static CDVWKInAppBrowser* instance = nil;
     NSString* url = [command argumentAtIndex:0];
     NSString* target = [command argumentAtIndex:1 withDefault:kInAppBrowserTargetSelf];
     NSString* options = [command argumentAtIndex:2 withDefault:@"" andClass:[NSString class]];
+    self.linkedDocuments = [command argumentAtIndex:3];
     
     self.callbackId = command.callbackId;
     
@@ -197,6 +198,8 @@ static CDVWKInAppBrowser* instance = nil;
         }
     }
 
+    browserOptions.linkedDocuments = self.linkedDocuments;
+    
     if (self.inAppBrowserViewController == nil) {
         self.inAppBrowserViewController = [[CDVWKInAppBrowserViewController alloc] initWithBrowserOptions: browserOptions andSettings:self.commandDelegate.settings];
         self.inAppBrowserViewController.navigationDelegate = self;
@@ -807,6 +810,49 @@ BOOL isExiting = FALSE;
     self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
     self.closeButton.enabled = YES;
     
+    // Botones linked documents
+    NSMutableArray *buttonsLinkedDocuments = [[NSMutableArray alloc] init];
+    
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    NSString *portfolioString = [defaults objectForKey:@"portfolio"];
+    
+    NSMutableArray *documentsPortfolio = nil;
+    if(portfolioString != nil && ![portfolioString isEqualToString:@""]) {
+        NSData *portfolioData = [portfolioString dataUsingEncoding:NSUTF8StringEncoding];
+        
+        NSError * error;
+        NSMutableDictionary *portfolioConfiguration = [NSJSONSerialization JSONObjectWithData:portfolioData options:NSJSONReadingMutableContainers error:&error];
+        
+        documentsPortfolio = portfolioConfiguration[@"documents"];
+    }
+    
+    if(_browserOptions.linkedDocuments != nil && [_browserOptions.linkedDocuments count] > 0) {
+        for (int i = 0; i < [_browserOptions.linkedDocuments count]; i++) {
+            long document = [[_browserOptions.linkedDocuments objectAtIndex:i] longValue];
+            
+            NSMutableDictionary *currentDocumentDetails = nil;
+            
+            if(documentsPortfolio != nil && [documentsPortfolio count] > 0) {
+                for (NSMutableDictionary *doc in documentsPortfolio) {
+                    if ([doc[@"id"] longValue] == document) {
+                        currentDocumentDetails = doc;
+                    }
+                }
+            }
+            
+            NSString *buttonTitle = (currentDocumentDetails != nil && currentDocumentDetails[@"title"] != nil) ? [NSString stringWithFormat:@"%@", currentDocumentDetails[@"title"]] : [NSString stringWithFormat:@"Archivo %d", i + 1];
+            
+            UIBarButtonItem *linkButton = [[UIBarButtonItem alloc] initWithTitle:buttonTitle style:UIBarButtonItemStyleBordered target:self action:@selector(linkedButtonPressed:)];
+            linkButton.enabled = YES;
+            linkButton.tag = document;
+            //linkButton.title = @"Link";
+            linkButton.tintColor = [UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1];
+            
+            [buttonsLinkedDocuments addObject:linkButton];
+        }
+    }
+    
     UIBarButtonItem* flexibleSpaceButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
     
     UIBarButtonItem* fixedSpaceButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
@@ -882,17 +928,28 @@ BOOL isExiting = FALSE;
       self.backButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
     }
 
-    // Filter out Navigation Buttons if user requests so
-    if (_browserOptions.hidenavigationbuttons) {
-        if (_browserOptions.lefttoright) {
-            [self.toolbar setItems:@[flexibleSpaceButton, self.closeButton]];
-        } else {
-            [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton]];
+    if (buttonsLinkedDocuments != nil && [buttonsLinkedDocuments count] > 0) {
+        NSMutableArray *buttonsToolBar = [[NSMutableArray alloc] init];
+        [buttonsToolBar addObject:self.closeButton];
+        
+        for(int i = 0; i < [buttonsLinkedDocuments count]; i++) {
+            [buttonsToolBar addObject:[buttonsLinkedDocuments objectAtIndex:i]];
         }
-    } else if (_browserOptions.lefttoright) {
-        [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, self.closeButton]];
+        
+        [self.toolbar setItems:buttonsToolBar];
     } else {
-        [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.backButton, fixedSpaceButton, self.forwardButton]];
+        // Filter out Navigation Buttons if user requests so
+        if (_browserOptions.hidenavigationbuttons) {
+            if (_browserOptions.lefttoright) {
+                [self.toolbar setItems:@[flexibleSpaceButton, self.closeButton]];
+            } else {
+                [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton]];
+            }
+        } else if (_browserOptions.lefttoright) {
+            [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, self.closeButton]];
+        } else {
+            [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.backButton, fixedSpaceButton, self.forwardButton]];
+        }
     }
     
     self.view.backgroundColor = [UIColor clearColor];
@@ -1078,6 +1135,23 @@ BOOL isExiting = FALSE;
             [[weakSelf parentViewController] dismissViewControllerAnimated:YES completion:nil];
         }
     });
+}
+
+- (void)linkedButtonPressed:(UIButton*)sender
+{
+    NSLog(@"Abrir documento enlazado con id %d", sender.tag);
+        
+    if (self.navigationDelegate.callbackId != nil) {
+        CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
+                                                      messageAsDictionary:@{@"type":@"linkedButtonPressed", @"idDocumentPressed":[NSString stringWithFormat:@"%d", sender.tag]}];
+        [self.navigationDelegate.commandDelegate sendPluginResult:pluginResult callbackId:self.navigationDelegate.callbackId];
+    }
+    
+    self.currentURL = nil;
+
+    if ((self.navigationDelegate != nil) && [self.navigationDelegate respondsToSelector:@selector(browserExit)]) {
+        [self.navigationDelegate browserExit];
+    }
 }
 
 - (void)navigateTo:(NSURL*)url
